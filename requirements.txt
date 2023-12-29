@@ -1,2 +1,4 @@
 pyautogen
 openai
+azure-search-documents
+azure-identity

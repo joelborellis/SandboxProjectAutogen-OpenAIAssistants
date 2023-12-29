@@ -9,15 +9,13 @@ from backend.tools.searchtool import Search
 load_dotenv()
 
 openai_model: str = os.environ.get("OPENAI_MODEL")
-openai.api_key = os.environ.get("OPENAI_API_KEY")
 # create client for OpenAI
-client = OpenAI(api_key=openai.api_key)
-search: Search = Search()  # get instance of search to query corpus
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 config_list_gpt4 = autogen.config_list_from_json(
     "OAI_CONFIG_LIST",
     filter_dict={
-        "model": ["gpt-4-1106-preview", "gpt-4-32k-0613"],
+        "model": ["gpt-4-1106-preview", "gpt-4"],
     },
 )
 
@@ -29,48 +27,68 @@ gpt4_config = {
 }
 
 # Function to perform a Shadow Search
-def shadow_search(message):
-    print("calling search")
-    search_result = search.search_hybrid(message)
+def generic_retriever(query, index):
+    print(f"calling search with - {query} - {index}")
+    search: Search = Search(index)  # get instance of search to query corpus using the name of the index
+    search_result = search.search_hybrid(query)
     return search_result
 
 if __name__ == '__main__':
         
         # Retrieve an existing assistant already setup as an OpenAI Assistant
         # this is OpenAI Assistant stuff
-        shadow_retriever_assistant = client.beta.assistants.retrieve(
-                        assistant_id="asst_CDgesnP9G5fWP15UVBeQQfUX",
+        retriever_assistant = client.beta.assistants.retrieve(
+                        assistant_id="asst_CqfJXxZLQk6xv2zNzVGU0zVj",
                         ) 
+        
+        # Retrieve an existing assistant already setup as an OpenAI Assistant
+        # this is OpenAI Assistant stuff
+        #planner_assistant = client.beta.assistants.retrieve(
+        #                assistant_id="asst_7LH25ZRiZXMk05J7F9NkyDSY",
+        #                ) 
 
         # define the config including the tools that the assistant has access to
         # this will be used by the GPTAssistant Agent that is Shadow Retriever
-        shadow_retriever_config = {
-            "assistant_id": shadow_retriever_assistant.id,
+        retriever_config = {
+            "assistant_id": retriever_assistant.id,
             "tools": [
                 {
                     "type": "function",
-                    "function": shadow_search,
+                    "function": generic_retriever,
                 }
                     ]
         }
 
+        # define the config including the tools that the assistant has access to
+        # this will be used by the GPTAssistant Agent that is Shadow Retriever
+        #planner_config = {
+        #    "assistant_id": planner_assistant.id,
+        #}
+
         # this is autogen stuff defining the agent that is going to be in the group
-        shadow_retriever_agent = GPTAssistantAgent(
-            name="Retriever",
-            instructions="""
-            You are a data researcher that uses a tool to retrieve data.
-            """,
-            llm_config=shadow_retriever_config,
+        generic_retriever_agent = GPTAssistantAgent(
+            name="GenericRetriever",
+            llm_config=retriever_config,
         )
 
-        shadow_retriever_agent.register_function(
+        generic_retriever_agent.register_function(
             function_map={
-                "shadow_search": shadow_search,
+                "generic_retriever": generic_retriever,
             }
         )
 
         # this is autogen stuff defining the agent that is going to be in the group
-        shadow_planner = autogen.AssistantAgent(
+        #planner = GPTAssistantAgent(
+        #    name="GenericPlanner",
+        #    llm_config=planner_config,
+        #    instructions='''Planner. Suggest a plan. Revise the plan based on feedback from admin, until admin approval.
+        #        The plan may involve GenericRetriever who can retrieve data.
+        #        Explain the plan first. Be clear which step is performed by GenericRetriever.
+        #        '''
+        #)
+
+        # this is autogen stuff defining the agent that is going to be in the group
+        planner = autogen.AssistantAgent(
             name="Planner",
             system_message='''Planner. Suggest a plan. Revise the plan based on feedback from admin, until admin approval.
                 The plan may involve retriever who can retrieve data.
@@ -81,13 +99,10 @@ if __name__ == '__main__':
 
         user_proxy = autogen.UserProxyAgent(
             name="Admin",
-            code_execution_config={
-                "work_dir" : "coding",
-            },
             system_message="A human admin. Interact with the planner to discuss the plan. Plan execution needs to be approved by this admin."
         )
 
-        groupchat = autogen.GroupChat(agents=[user_proxy, shadow_retriever_agent, shadow_planner], messages=[], max_round=10)
+        groupchat = autogen.GroupChat(agents=[user_proxy, generic_retriever_agent, planner], messages=[], max_round=10)
         manager = autogen.GroupChatManager(groupchat=groupchat)
 
         print("initiating chat")
@@ -95,7 +110,6 @@ if __name__ == '__main__':
         user_proxy.initiate_chat(
             manager,
             message="""
-            I have a first meeting with a prospect - what do I need to find out and what are the most important things I need to relate to them?
-            """,
-            silent=False
+            I have a first meeting with a prospect United Healthcare - what do I need to find out and what are the most important things I need to relate to them.  Use the index called sales_vector_index.
+            """
         )
